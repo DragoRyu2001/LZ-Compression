@@ -44,6 +44,9 @@ pub const LZCompression: type = struct {
         if (map.contains(hash_key)) {
             longest_match_index = map.get(hash_key).?;
             longest_match = try getLongestMatch(buffer, longest_match_index, start_index);
+
+            //we override the current position as the new value for the key, so that the offest remains tame
+            longest_match_index = start_index;
         } else {
             var iterator: u16 = 0;
             longest_match_index = start_index;
