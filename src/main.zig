@@ -5,34 +5,47 @@ pub const LZCompression: type = struct {
     pub fn compression(filePath: []const u8, allocator: std.mem.Allocator) !void {
         var file = try std.fs.openFileAbsolute(filePath, .{});
         defer file.close();
-        try compress(file, allocator);
+        try compressFile(file, allocator);
     }
 
-    pub fn compress(file: std.fs.File, allocator: std.mem.Allocator) !void {
+    pub fn compressFile(file: std.fs.File, allocator: std.mem.Allocator) !void {
         var buffer: [64000]u8 = undefined;
         try file.seekTo(0);
         var map = std.AutoHashMap(u32, u16).init(
             allocator,
         );
+        defer map.deinit();
         defer map.clearAndFree();
 
-        const bytes_read = try file.readAll(&buffer);
+        var array = std.ArrayList(u8).init(
+            allocator,
+        );
+        defer array.deinit();
+        defer array.clearAndFree();
+
+        const bytes_to_read = try file.readAll(&buffer);
         var bytes_skipped: usize = 0;
+        var literal_bytes_count: usize = 0;
 
         var index: u16 = 0;
-        while (index < bytes_read) {
+        while (index < bytes_to_read) {
             const byte = buffer[index];
             const tuple = try findLongestMatch(&buffer, index, &map);
             if (tuple.match_found) {
                 std.log.debug("Found tuple: {}", .{tuple});
                 index += tuple.match_length;
                 bytes_skipped += tuple.match_length;
+
+                //Here we add in logic for creating the token byte
+
+                literal_bytes = 0;
             } else {
                 std.log.debug("Literal: {c}", .{byte});
+                literal_bytes += 1;
                 index += 1;
             }
         }
-        std.log.debug("Total Bytes: {} | Bytes skipped: {} | Compressed Bytes: {}", .{ bytes_read, bytes_skipped, bytes_read - bytes_skipped });
+        std.log.debug("Total Bytes: {} | Bytes skipped: {} | Compressed Bytes: {}", .{ bytes_to_read, bytes_skipped, bytes_to_read - bytes_skipped });
     }
 
     fn findLongestMatch(buffer: *[64000]u8, start_index: u16, map: *std.AutoHashMap(u32, u16)) !LZTuple {
