@@ -10,8 +10,6 @@ pub const LZCompression: type = struct {
 
     pub fn compressFile(file: std.fs.File, allocator: std.mem.Allocator) !void {
         var buffer: [64000]u8 = undefined;
-        var write_buffer: [64000]u8 = undefined;
-        var write_index: usize = undefined;
         try file.seekTo(0);
         var map = std.AutoHashMap(u32, u16).init(
             allocator,
@@ -29,6 +27,9 @@ pub const LZCompression: type = struct {
         var bytes_skipped: usize = 0;
         var literal_bytes_count: usize = 0;
         var literal_bytes: [64000]u8 = undefined;
+        var first_literal: bool = true;
+        var start_literal: u16 = 0;
+        var end_literal: u16 = 0;
 
         var index: u16 = 0;
         while (index < bytes_to_read) {
@@ -40,9 +41,15 @@ pub const LZCompression: type = struct {
                 bytes_skipped += tuple.match_length;
 
                 //Here we add in logic for creating the token byte
-
+                try generateByte(&buffer, start_literal, end_literal, tuple, allocator);
                 literal_bytes_count = 0;
+                first_literal = true;
             } else {
+                if (first_literal) {
+                    first_literal = false;
+                    start_literal = index;
+                }
+                end_literal = index;
                 std.log.debug("Literal: {c}", .{byte});
                 literal_bytes[literal_bytes_count] = byte;
                 literal_bytes_count += 1;
@@ -84,7 +91,7 @@ pub const LZCompression: type = struct {
         return longest_match;
     }
 
-    fn getLongestMatch(buffer: *[64000]u8, search_index: u32, start_index: usize) !LZTuple {
+    fn getLongestMatch(buffer: *[64000]u8, search_index: u16, start_index: u16) !LZTuple {
         var i: u16 = 0;
         while (start_index + i < buffer.len) : (i += 1) {
             if (buffer[search_index + i] == buffer[start_index + i]) {
@@ -102,9 +109,11 @@ pub const LZCompression: type = struct {
         value |= @as(u32, buffer[index + 3]) << 24;
         return value;
     }
-    fn generateByte(buffer: *[64000]u8, literal_start: u16, literal_end: u16, allocator: std.mem.Allocator) !void {
+    fn generateByte(buffer: *[64000]u8, literal_start: u16, literal_end: u16, offset: LZTuple, allocator: std.mem.Allocator) !void {
         var literal_count: usize = literal_end - literal_start;
         var array: std.ArrayList(u8) = std.ArrayList(u8).init(allocator);
+        defer array.deinit();
+        defer array.clearAndFree();
 
         //Setting the literal bytes in token
         var high_nibble: u8 = 0;
@@ -112,27 +121,47 @@ pub const LZCompression: type = struct {
             high_nibble = 15 << 4;
             literal_count -= 15;
             while (literal_count >= 255) {
-                array.append(255);
+                try array.append(255);
                 literal_count -= 255;
             }
-            array.append(@truncate(literal_count));
+            try array.append(@truncate(literal_count));
         } else {
-            high_nibble = @as(u8, literal_count) << 4;
+            high_nibble = @truncate(literal_count);
+            high_nibble <<= 4;
         }
 
-        //TODO Add in the Literal Bytes here...
         for (buffer[literal_start..literal_end]) |byte| {
-            array.append(byte);
+            try array.append(byte);
         }
 
-        //TODO Add in the match offset in little endian
+        var offset_count = offset.match_offset;
+        if (offset_count > 255) {
+            while (offset_count >= 255) : (offset_count -= 255) {
+                try array.append(255);
+            }
+        }
+        try array.append(@truncate(offset_count));
 
-        //TODO Add in the match length in token Byte
-
-        //TODO extra match length byte
+        var low_nibble: u8 = 0;
+        var offset_length = offset.match_length;
+        if (offset.match_length >= 15) {
+            low_nibble = 15;
+            offset_length -= 15;
+            while (offset_length >= 255) : (offset_length -= 255) {
+                try array.append(255);
+            }
+            try array.append(@truncate(offset_length));
+        } else {
+            low_nibble = @truncate(offset_length);
+        }
+        try array.insert(0, high_nibble | low_nibble);
+        std.log.debug("Compressed Byte is:", .{});
+        for (array.items) |byte| {
+            std.log.debug("===||  {c}", .{byte});
+        }
     }
 };
-pub const LZTuple: type = struct { match_found: bool, match_offset: usize, match_length: u16 };
+pub const LZTuple: type = struct { match_found: bool, match_offset: u16, match_length: u16 };
 pub const RandomNumber: comptime_int = 2654435761;
 // pub const LZError = error{
 //     ByteMatchExceeded,
