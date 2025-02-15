@@ -102,8 +102,8 @@ pub const LZCompression: type = struct {
         value |= @as(u32, buffer[index + 3]) << 24;
         return value;
     }
-    fn generateByte(literal_byte_count: usize, allocator: std.mem.Allocator) !void {
-        var literal_count: usize = literal_byte_count;
+    fn generateByte(buffer: *[64000]u8, literal_start: u16, literal_end: u16, allocator: std.mem.Allocator) !void {
+        var literal_count: usize = literal_end - literal_start;
         var array: std.ArrayList(u8) = std.ArrayList(u8).init(allocator);
 
         //Setting the literal bytes in token
@@ -121,10 +121,13 @@ pub const LZCompression: type = struct {
         }
 
         //TODO Add in the Literal Bytes here...
-
-        //TODO Add in the match length in token
+        for (buffer[literal_start..literal_end]) |byte| {
+            array.append(byte);
+        }
 
         //TODO Add in the match offset in little endian
+
+        //TODO Add in the match length in token Byte
 
         //TODO extra match length byte
     }
