@@ -10,6 +10,8 @@ pub const LZCompression: type = struct {
 
     pub fn compressFile(file: std.fs.File, allocator: std.mem.Allocator) !void {
         var buffer: [64000]u8 = undefined;
+        var write_buffer: [64000]u8 = undefined;
+        var write_index: usize = undefined;
         try file.seekTo(0);
         var map = std.AutoHashMap(u32, u16).init(
             allocator,
@@ -26,6 +28,7 @@ pub const LZCompression: type = struct {
         const bytes_to_read = try file.readAll(&buffer);
         var bytes_skipped: usize = 0;
         var literal_bytes_count: usize = 0;
+        var literal_bytes: [64000]u8 = undefined;
 
         var index: u16 = 0;
         while (index < bytes_to_read) {
@@ -38,10 +41,11 @@ pub const LZCompression: type = struct {
 
                 //Here we add in logic for creating the token byte
 
-                literal_bytes = 0;
+                literal_bytes_count = 0;
             } else {
                 std.log.debug("Literal: {c}", .{byte});
-                literal_bytes += 1;
+                literal_bytes[literal_bytes_count] = byte;
+                literal_bytes_count += 1;
                 index += 1;
             }
         }
@@ -97,6 +101,32 @@ pub const LZCompression: type = struct {
         value |= @as(u32, buffer[index + 2]) << 16;
         value |= @as(u32, buffer[index + 3]) << 24;
         return value;
+    }
+    fn generateByte(literal_byte_count: usize, allocator: std.mem.Allocator) !void {
+        var literal_count: usize = literal_byte_count;
+        var array: std.ArrayList(u8) = std.ArrayList(u8).init(allocator);
+
+        //Setting the literal bytes in token
+        var high_nibble: u8 = 0;
+        if (literal_count >= 15) {
+            high_nibble = 15 << 4;
+            literal_count -= 15;
+            while (literal_count >= 255) {
+                array.append(255);
+                literal_count -= 255;
+            }
+            array.append(@truncate(literal_count));
+        } else {
+            high_nibble = @as(u8, literal_count) << 4;
+        }
+
+        //TODO Add in the Literal Bytes here...
+
+        //TODO Add in the match length in token
+
+        //TODO Add in the match offset in little endian
+
+        //TODO extra match length byte
     }
 };
 pub const LZTuple: type = struct { match_found: bool, match_offset: usize, match_length: u16 };
