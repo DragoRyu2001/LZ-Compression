@@ -21,3 +21,18 @@ test "basic encoding data" {
     try LZCompression.compressFile(file, gpa_alloc.allocator());
     try std.fs.cwd().deleteFile("junk_file.txt");
 }
+test "lorem ipsum" {
+    testing.log_level = .debug;
+    const file = try std.fs.openFileAbsolute(
+        "C:\\Users\\Sanch\\Documents\\Personal\\LZ-Compression\\test_cases\\lorem_ipsum.txt",
+        .{},
+    );
+    defer file.close();
+
+    var gpa_alloc = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(gpa_alloc.deinit() == .ok);
+
+    try file.writeAll("Hi Guys! this is a test file to check if this log works or not!!\n And the fun part is the more I write in this file the more it should try to optimize this file for me!!\n Hopefully, this does not break anywhere(fingers crossed)");
+    try LZCompression.compressFile(file, gpa_alloc.allocator());
+    try std.fs.cwd().deleteFile("junk_file.txt");
+}
