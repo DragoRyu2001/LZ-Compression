@@ -9,8 +9,13 @@ pub const LZCompression: type = struct {
     }
 
     pub fn compressFile(file: std.fs.File, allocator: std.mem.Allocator) !void {
+        std.log.debug("Starting Compression...", .{});
         var buffer: [64000]u8 = undefined;
         try file.seekTo(0);
+
+        std.log.debug("Reading File...", .{});
+        const bytes_to_read = try file.readAll(&buffer);
+
         var map = std.AutoHashMap(u32, u16).init(
             allocator,
         );
@@ -23,7 +28,6 @@ pub const LZCompression: type = struct {
         defer write_array.deinit();
         defer write_array.clearAndFree();
 
-        const bytes_to_read = try file.readAll(&buffer);
         var bytes_skipped: usize = 0;
         var literal_bytes_count: usize = 0;
         var literal_bytes: [64000]u8 = undefined;
