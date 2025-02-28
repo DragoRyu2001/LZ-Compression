@@ -1,4 +1,5 @@
 const std = @import("std");
+const log = std.log;
 
 pub fn main() !void {}
 pub const LZCompression: type = struct {
@@ -30,18 +31,19 @@ pub const LZCompression: type = struct {
 
         var bytes_skipped: usize = 0;
         var literal_bytes_count: usize = 0;
-        var literal_bytes: [64000]u8 = undefined;
         var first_literal: bool = true;
         var start_literal: u16 = 0;
         var end_literal: u16 = 0;
+        var bytes_recorded: usize = 0;
 
         var index: u16 = 0;
         while (index < bytes_to_read) {
-            const byte = buffer[index];
+            // log.debug("index: {} | first_literal: {}", .{ index, first_literal });
             const tuple = try findLongestMatch(&buffer, index, &map);
             if (tuple.match_found) {
-                std.log.debug("Found tuple: {}", .{tuple});
+                // log.debug("found..", .{});
                 index += tuple.match_length;
+                first_literal = true;
                 bytes_skipped += tuple.match_length;
 
                 //Here we add in logic for creating the token byte
@@ -51,25 +53,22 @@ pub const LZCompression: type = struct {
                 defer generate_byte.clearAndFree();
 
                 const written_bytes = try generateByte(&buffer, start_literal, end_literal, tuple, &generate_byte);
-                std.log.debug("This Compiled", .{});
+                bytes_recorded += written_bytes.len;
                 try write_array.writer().writeAll(written_bytes);
 
                 literal_bytes_count = 0;
-                first_literal = true;
             } else {
                 if (first_literal) {
                     first_literal = false;
                     start_literal = index;
                 }
                 end_literal = index;
-                std.log.debug("Literal: {c}", .{byte});
-                literal_bytes[literal_bytes_count] = byte;
                 literal_bytes_count += 1;
                 index += 1;
             }
         }
-        std.log.debug("Total Bytes: {} | Bytes skipped: {} | Compressed Bytes: {}", .{ bytes_to_read, bytes_skipped, bytes_to_read - bytes_skipped });
-        std.log.debug("Original Byte Length: {} || Compressed Byte Length: {}", .{ bytes_to_read, write_array.items.len });
+        log.debug("Total Bytes: {} | Bytes skipped: {} | Compressed Bytes: {}", .{ bytes_to_read, bytes_skipped, bytes_to_read - bytes_skipped });
+        log.debug("Original Byte Length: {} || Compressed Byte Length: {}", .{ bytes_to_read, bytes_recorded });
     }
 
     fn findLongestMatch(buffer: *[64000]u8, start_index: u16, map: *std.AutoHashMap(u32, u16)) !LZTuple {
@@ -84,21 +83,6 @@ pub const LZCompression: type = struct {
 
             //we override the current position as the new value for the key, so that the offest remains tame
             longest_match_index = start_index;
-        } else {
-            var iterator: u16 = 0;
-            longest_match_index = start_index;
-            while (iterator < start_index) : (iterator += 1) {
-                const match: LZTuple = try getLongestMatch(buffer, iterator, start_index);
-
-                if (!match.match_found) {
-                    continue;
-                }
-
-                if (match.match_length >= longest_match.match_length) {
-                    longest_match_index = iterator;
-                    longest_match = match;
-                }
-            }
         }
         try map.put(hash_key, longest_match_index);
         return longest_match;
@@ -124,44 +108,57 @@ pub const LZCompression: type = struct {
     }
     fn generateByte(buffer: *[64000]u8, literal_start: u16, literal_end: u16, offset: LZTuple, array: *std.ArrayList(u8)) ![]u8 {
         var literal_count: usize = literal_end - literal_start;
-        // // var array: std.ArrayList(u8) = std.ArrayList(u8).init(allocator);
-        // defer array.deinit();
-        // defer array.clearAndFree();
+        var token_literal_count: usize = 0;
+        var token_offset_count: usize = 0;
 
         //Setting the literal bytes in token
         var high_nibble: u8 = 0;
         if (literal_count >= 15) {
             high_nibble = 15 << 4;
             literal_count -= 15;
+            //This is setting the literal count overflow, in case there are more literals than is supported in 4 bits
             while (literal_count >= 255) {
                 try array.append(255);
                 literal_count -= 255;
+                token_literal_count += 1;
             }
             try array.append(@truncate(literal_count));
         } else {
+            //If there is no extra overflow in literal count, then just set the high-nibble
             high_nibble = @truncate(literal_count);
             high_nibble <<= 4;
         }
 
+        //Adding in the actual literal bytes
         for (buffer[literal_start..literal_end]) |byte| {
             try array.append(byte);
         }
 
-        var offset_count = offset.match_offset;
-        if (offset_count > 255) {
-            while (offset_count >= 255) : (offset_count -= 255) {
-                try array.append(255);
-            }
-        }
+        //Counting offset
+        const offset_count = offset.match_offset;
+        //offset count is stored in little endian (should not be more than 2 bytes, as the offset is set to that size)
+
+        try array.append(@truncate(offset_count & 0x00FF));
+        try array.append(@truncate(offset_count & 0xFF00));
+
+        // if (offset_count > 255) {
+        //     while (offset_count >= 255) : (offset_count -= 255) {
+        //         try array.append(255);
+        //         log.debug("Array Length is: {}", .{array.items.len});
+        //     }
+        // }
         try array.append(@truncate(offset_count));
 
         var low_nibble: u8 = 0;
         var offset_length = offset.match_length;
+        //Storing the offset length
+        //The issue is storing this match offset, it is using more than 2 bytes
         if (offset.match_length >= 15) {
             low_nibble = 15;
             offset_length -= 15;
             while (offset_length >= 255) : (offset_length -= 255) {
                 try array.append(255);
+                token_offset_count += 1;
             }
             try array.append(@truncate(offset_length));
         } else {
@@ -172,7 +169,3 @@ pub const LZCompression: type = struct {
     }
 };
 pub const LZTuple: type = struct { match_found: bool, match_offset: u16, match_length: u16 };
-// pub const RandomNumber: comptime_int = 2654435761;
-// pub const LZError = error{
-//     GenerateByteFailure,
-// };
