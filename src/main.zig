@@ -3,13 +3,21 @@ const log = std.log;
 
 pub fn main() !void {}
 pub const LZCompression: type = struct {
-    pub fn compression(filePath: []const u8, allocator: std.mem.Allocator) !void {
+    pub fn compressFile(filePath: []const u8, allocator: std.mem.Allocator) !void {
         var file = try std.fs.openFileAbsolute(filePath, .{});
         defer file.close();
-        try compressFile(file, allocator);
+        const compressedBytes = try compress(file, allocator);
+        log.debug("compressedBytes are: {}", .{compressedBytes.len});
+        const parentPath = std.fs.path.dirname(filePath);
+        const baseName = std.fs.path.basename(filePath);
+        const compressedFileName = try std.fmt.allocPrint(allocator, "{s}.lz4", .{baseName});
+        const compressedPath = try std.fs.path.join(allocator, {parentPath, compressedFileName});
+        var file = try std.fs.createFileAbsolute(compressedPath);
+        var writer = file.writer();
+        writer.writaAll(compressedBytes);
     }
 
-    pub fn compressFile(file: std.fs.File, allocator: std.mem.Allocator) !void {
+    pub fn compress(file: std.fs.File, allocator: std.mem.Allocator) ![]u8 {
         std.log.debug("Starting Compression...", .{});
         var buffer: [64000]u8 = undefined;
         try file.seekTo(0);
@@ -69,6 +77,7 @@ pub const LZCompression: type = struct {
         }
         log.debug("Total Bytes: {} | Bytes skipped: {} | Compressed Bytes: {}", .{ bytes_to_read, bytes_skipped, bytes_to_read - bytes_skipped });
         log.debug("Original Byte Length: {} || Compressed Byte Length: {}", .{ bytes_to_read, bytes_recorded });
+        return write_array.items;
     }
 
     fn findLongestMatch(buffer: *[64000]u8, start_index: u16, map: *std.AutoHashMap(u32, u16)) !LZTuple {
@@ -140,13 +149,6 @@ pub const LZCompression: type = struct {
 
         try array.append(@truncate(offset_count & 0x00FF));
         try array.append(@truncate(offset_count & 0xFF00));
-
-        // if (offset_count > 255) {
-        //     while (offset_count >= 255) : (offset_count -= 255) {
-        //         try array.append(255);
-        //         log.debug("Array Length is: {}", .{array.items.len});
-        //     }
-        // }
         try array.append(@truncate(offset_count));
 
         var low_nibble: u8 = 0;
